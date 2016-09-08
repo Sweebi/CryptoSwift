@@ -13,12 +13,14 @@ final public class ChaCha20: BlockCipher {
     }
     
     public static let blockSize = 64 // 512 / 8
-    private let context: Context
+    fileprivate let context: Context
 
     private struct Context {
         var input = Array<UInt32>(repeating: 0, count: 16)
 
         init(key:Array<UInt8>, iv:Array<UInt8>) throws {
+            precondition(iv.count >= 8)
+
             let kbits = key.count * 8
 
             if (kbits != 128 && kbits != 256) {
@@ -68,8 +70,9 @@ final public class ChaCha20: BlockCipher {
         self.context = try Context(key: key, iv: iv)
     }
     
-    private final func wordToByte(_ input:Array<UInt32> /* 64 */) -> Array<UInt8>? /* 16 */ {
-        assert(input.count == 16)
+    fileprivate func wordToByte(_ input:Array<UInt32> /* 64 */) -> Array<UInt8>? /* 16 */ {
+        precondition(input.count == 16)
+
         var x = input
 
         for _ in 0..<10 {
@@ -93,38 +96,7 @@ final public class ChaCha20: BlockCipher {
 
         return output;
     }
-    
-    fileprivate final func encryptBytes(_ message:Array<UInt8>) throws -> Array<UInt8> {
-        var ctx = context
-        var c = Array<UInt8>(repeating: 0, count: message.count)
-        
-        var cPos:Int = 0
-        var mPos:Int = 0
-        var bytes = message.count
-        
-        while (true) {
-            if let output = wordToByte(ctx.input) {
-                ctx.input[12] = ctx.input[12] &+ 1
-                if (ctx.input[12] == 0) {
-                    ctx.input[13] = ctx.input[13] &+ 1
-                    /* stopping at 2^70 bytes per nonce is user's responsibility */
-                }
-                if (bytes <= ChaCha20.blockSize) {
-                    for i in 0..<bytes {
-                        c[i + cPos] = message[i + mPos] ^ output[i]
-                    }
-                    return c
-                }
-                for i in 0..<ChaCha20.blockSize {
-                    c[i + cPos] = message[i + mPos] ^ output[i]
-                }
-                bytes -= ChaCha20.blockSize
-                cPos += ChaCha20.blockSize
-                mPos += ChaCha20.blockSize
-            }
-        }
-    }
-    
+
     private final func quarterround(_ a:inout UInt32, _ b:inout UInt32, _ c:inout UInt32, _ d:inout UInt32) {
         a = a &+ b
         d = rotateLeft((d ^ a), by: 16) //FIXME: WAT? n:
@@ -140,6 +112,44 @@ final public class ChaCha20: BlockCipher {
     }
 }
 
+// MARK: Cipher
+extension ChaCha20: Cipher {
+    public func encrypt<C: Collection>(_ bytes: C) throws -> Array<UInt8> where C.Iterator.Element == UInt8, C.IndexDistance == Int, C.Index == Int {
+        var ctx = context
+        var c = Array<UInt8>(repeating: 0, count: bytes.count)
+
+        var cPos:Int = 0
+        var mPos:Int = 0
+        var bytesCount = bytes.count
+
+        while (true) {
+            if let output = wordToByte(ctx.input) {
+                ctx.input[12] = ctx.input[12] &+ 1
+                if (ctx.input[12] == 0) {
+                    ctx.input[13] = ctx.input[13] &+ 1
+                    /* stopping at 2^70 bytes per nonce is user's responsibility */
+                }
+                if (bytesCount <= ChaCha20.blockSize) {
+                    for i in 0..<bytesCount {
+                        c[i + cPos] = bytes[i + mPos] ^ output[i]
+                    }
+                    return c
+                }
+                for i in 0..<ChaCha20.blockSize {
+                    c[i + cPos] = bytes[i + mPos] ^ output[i]
+                }
+                bytesCount -= ChaCha20.blockSize
+                cPos += ChaCha20.blockSize
+                mPos += ChaCha20.blockSize
+            }
+        }
+    }
+
+    public func decrypt<C: Collection>(_ bytes: C) throws -> Array<UInt8> where C.Iterator.Element == UInt8, C.IndexDistance == Int, C.Index == Int {
+        return try encrypt(bytes)
+    }
+}
+
 // MARK: Encryptor
 extension ChaCha20 {
     public struct Encryptor: Updatable {
@@ -150,12 +160,12 @@ extension ChaCha20 {
             self.chacha = chacha
         }
 
-        mutating public func update<T: Sequence where T.Iterator.Element == UInt8>(withBytes bytes:T, isLast: Bool = false) throws -> Array<UInt8> {
+        mutating public func update<T: Sequence>(withBytes bytes:T, isLast: Bool = false) throws -> Array<UInt8> where T.Iterator.Element == UInt8 {
             self.accumulated += bytes
 
             var encrypted = Array<UInt8>()
             encrypted.reserveCapacity(self.accumulated.count)
-            for chunk in self.accumulated.chunks(size: ChaCha20.blockSize) {
+            for chunk in BytesSequence(chunkSize: ChaCha20.blockSize, data: self.accumulated) {
                 if (isLast || self.accumulated.count >= ChaCha20.blockSize) {
                     encrypted += try chacha.encrypt(chunk)
                     self.accumulated.removeFirst(chunk.count)
@@ -179,7 +189,7 @@ extension ChaCha20 {
             self.chacha = chacha
         }
 
-        mutating public func update<T: Sequence where T.Iterator.Element == UInt8>(withBytes bytes:T, isLast: Bool = true) throws -> Array<UInt8> {
+        mutating public func update<T: Sequence>(withBytes bytes:T, isLast: Bool = true) throws -> Array<UInt8> where T.Iterator.Element == UInt8 {
             // prepend "offset" number of bytes at the begining
             if self.offset > 0 {
                 self.accumulated += Array<UInt8>(repeating: 0, count: offset) + bytes
@@ -191,7 +201,7 @@ extension ChaCha20 {
 
             var plaintext = Array<UInt8>()
             plaintext.reserveCapacity(self.accumulated.count)
-            for chunk in self.accumulated.chunks(size: ChaCha20.blockSize) {
+            for chunk in BytesSequence(chunkSize: ChaCha20.blockSize, data: self.accumulated) {
                 if (isLast || self.accumulated.count >= ChaCha20.blockSize) {
                     plaintext += try chacha.decrypt(chunk)
 
@@ -213,7 +223,6 @@ extension ChaCha20 {
 
 // MARK: Cryptors
 extension ChaCha20: Cryptors {
-
     public func makeEncryptor() -> ChaCha20.Encryptor {
         return Encryptor(chacha: self)
     }
@@ -223,24 +232,13 @@ extension ChaCha20: Cryptors {
     }
 }
 
-// MARK: Cipher
-extension ChaCha20: Cipher {
-    public func encrypt(_ bytes:Array<UInt8>) throws -> Array<UInt8> {
-        return try encryptBytes(bytes)
-    }
-
-    public func decrypt(_ bytes:Array<UInt8>) throws -> Array<UInt8> {
-        return try encrypt(bytes)
-    }
-}
-
 // MARK: Helpers
 
 /// Change array to number. It's here because arrayOfBytes is too slow
-private func wordNumber(_ bytes:ArraySlice<UInt8>) -> UInt32 {
+private func wordNumber<T: Collection>(_ bytes: T) -> UInt32 where T.Iterator.Element == UInt8, T.IndexDistance == Int {
     var value:UInt32 = 0
     for i:UInt32 in 0..<4 {
-        let j = bytes.startIndex + Int(i)
+        let j = bytes.index(bytes.startIndex, offsetBy: Int(i))
         value = value | UInt32(bytes[j]) << (8 * i)
     }
 

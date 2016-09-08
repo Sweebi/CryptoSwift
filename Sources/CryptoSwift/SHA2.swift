@@ -6,7 +6,7 @@
 //  Copyright (c) 2014 Marcin Krzyzanowski. All rights reserved.
 //
 
-final class SHA2 : HashProtocol {
+final class SHA2: DigestType {
     var size:Int { return variant.rawValue }
     let variant: Variant
     
@@ -53,7 +53,7 @@ final class SHA2 : HashProtocol {
             }
         }
         
-        var size:Int { return self.rawValue }
+        var digestSize:Int { return self.rawValue }
         
         fileprivate var h:Array<UInt64> {
             switch (self) {
@@ -114,8 +114,8 @@ final class SHA2 : HashProtocol {
     
     //FIXME: I can't do Generic func out of calculate32 and calculate64 (UInt32 vs UInt64), but if you can - please do pull request.
     func calculate32() -> Array<UInt8> {
-        var tmpMessage = self.prepare(64)
-        
+        var tmpMessage = bitPadding(to: self.message, blockSize: 64, allowance: 64 / 8)
+
         // hash values
         var hh = Array<UInt32>()
         variant.h.forEach {(h) -> () in
@@ -130,13 +130,13 @@ final class SHA2 : HashProtocol {
         for chunk in BytesSequence(chunkSize: chunkSizeBytes, data: tmpMessage) {
             // break chunk into sixteen 32-bit words M[j], 0 ≤ j ≤ 15, big-endian
             // Extend the sixteen 32-bit words into sixty-four 32-bit words:
-            var M:Array<UInt32> = Array<UInt32>(repeating: 0, count: variant.k.count)
+            var M = Array<UInt32>(repeating: 0, count: variant.k.count)
             for x in 0..<M.count {
                 switch (x) {
                 case 0...15:
                     let start = chunk.startIndex + (x * MemoryLayout<UInt32>.size)
                     let end = start + MemoryLayout<UInt32>.size
-                    let le = sliceToUInt32Array(chunk[start..<end])[0]
+                    let le = chunk[start..<end].toUInt32Array()[0]
                     M[x] = le.bigEndian
                     break
                 default:
@@ -196,7 +196,7 @@ final class SHA2 : HashProtocol {
     }
     
     func calculate64() -> Array<UInt8> {
-        var tmpMessage = self.prepare(128)
+        var tmpMessage = bitPadding(to: self.message, blockSize: 128, allowance: 128 / 8)
         
         // hash values
         var hh = Array<UInt64>()
@@ -205,8 +205,8 @@ final class SHA2 : HashProtocol {
         }
 		
   
-        // append message length, in a 64-bit big-endian integer. So now the message length is a multiple of 512 bits.
-        tmpMessage += (message.count * 8).bytes(totalBytes: 64 / 8)
+        // append message length, in a 128-bit big-endian integer. So now the message length is a multiple of 1024 bits.
+        tmpMessage += (message.count * 8).bytes(totalBytes: 128 / 8)
         
         // Process the message in successive 1024-bit chunks:
         let chunkSizeBytes = 1024 / 8 // 128
@@ -219,7 +219,7 @@ final class SHA2 : HashProtocol {
                 case 0...15:
                     let start = chunk.startIndex + (x * MemoryLayout<UInt64>.size)
                     let end = start + MemoryLayout<UInt64>.size
-                    let le = sliceToUInt64Array(chunk[start..<end])[0]
+                    let le = chunk[start..<end].toUInt64Array()[0]
                     M[x] = le.bigEndian
                     break
                 default:

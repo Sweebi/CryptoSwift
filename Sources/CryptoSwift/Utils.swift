@@ -52,42 +52,37 @@ func reversed(_ uint32 : UInt32) -> UInt32 {
     return v
 }
 
-func sliceToUInt32Array(_ slice: ArraySlice<UInt8>) -> Array<UInt32> {
-    var result = Array<UInt32>()
-    result.reserveCapacity(16)
-    for idx in stride(from: slice.startIndex, to: slice.endIndex, by: MemoryLayout<UInt32>.size) {
-        let val1:UInt32 = (UInt32(slice[idx.advanced(by: 3)]) << 24)
-        let val2:UInt32 = (UInt32(slice[idx.advanced(by: 2)]) << 16)
-        let val3:UInt32 = (UInt32(slice[idx.advanced(by: 1)]) << 8)
-        let val4:UInt32 = UInt32(slice[idx])
-        let val:UInt32 = val1 | val2 | val3 | val4
-        result.append(val)
-    }
-    return result
-}
-
-func sliceToUInt64Array(_ slice: ArraySlice<UInt8>) -> Array<UInt64> {
-    var result = Array<UInt64>()
-    result.reserveCapacity(32)
-    for idx in stride(from: slice.startIndex, to: slice.endIndex, by: MemoryLayout<UInt64>.size) {
-        var val:UInt64 = 0
-        val |= UInt64(slice[idx.advanced(by: 7)]) << 56
-        val |= UInt64(slice[idx.advanced(by: 6)]) << 48
-        val |= UInt64(slice[idx.advanced(by: 5)]) << 40
-        val |= UInt64(slice[idx.advanced(by: 4)]) << 32
-        val |= UInt64(slice[idx.advanced(by: 3)]) << 24
-        val |= UInt64(slice[idx.advanced(by: 2)]) << 16
-        val |= UInt64(slice[idx.advanced(by: 1)]) << 8
-        val |= UInt64(slice[idx.advanced(by: 0)]) << 0
-        result.append(val)
-    }
-    return result
-}
-
 func xor(_ a: Array<UInt8>, _ b:Array<UInt8>) -> Array<UInt8> {
     var xored = Array<UInt8>(repeating: 0, count: min(a.count, b.count))
     for i in 0..<xored.count {
         xored[i] = a[i] ^ b[i]
     }
     return xored
+}
+
+/**
+ ISO/IEC 9797-1 Padding method 2.
+ Add a single bit with value 1 to the end of the data.
+ If necessary add bits with value 0 to the end of the data until the padded data is a multiple of blockSize.
+ - parameters:
+ - blockSize: Padding size in bytes.
+ - allowance: Excluded trailing number of bytes.
+ */
+func bitPadding(to data: Array<UInt8>, blockSize: Int, allowance: Int = 0) -> Array<UInt8> {
+    var tmp = data
+
+    // Step 1. Append Padding Bits
+    tmp.append(0x80) // append one bit (UInt8 with one bit) to message
+
+    // append "0" bit until message length in bits ≡ 448 (mod 512)
+    var msgLength = tmp.count
+    var counter = 0
+
+    while msgLength % blockSize != (blockSize - allowance) {
+        counter += 1
+        msgLength += 1
+    }
+
+    tmp += Array<UInt8>(repeating: 0, count: counter)
+    return tmp
 }

@@ -1,35 +1,25 @@
 //
-//  CryptoSwiftTests.swift
+//  DigestTests.swift
 //  CryptoSwiftTests
 //
 //  Created by Marcin Krzyzanowski on 06/07/14.
 //  Copyright (c) 2014 Marcin Krzyzanowski. All rights reserved.
 //
+// http://www.di-mgt.com.au/sha_testvectors.html (http://csrc.nist.gov/groups/ST/toolkit/documents/Examples/SHA_All.pdf)
+//
 
 import XCTest
+import Foundation
 @testable import CryptoSwift
 
-final class CryptoSwiftTests: XCTestCase {
+final class DigestTests: XCTestCase {
     
-    override func setUp() {
-        super.setUp()
-    }
-    
-    override func tearDown() {
-        super.tearDown()
-    }
-    
-    func testMD5_data() {
+    func testMD5Data() {
         let data = [0x31, 0x32, 0x33] as Array<UInt8> // "1", "2", "3"
-        XCTAssertEqual(Hash.md5(data).calculate(), [0x20,0x2c,0xb9,0x62,0xac,0x59,0x07,0x5b,0x96,0x4b,0x07,0x15,0x2d,0x23,0x4b,0x70], "MD5 calculation failed");
+        XCTAssertEqual(Digest.md5(data), [0x20,0x2c,0xb9,0x62,0xac,0x59,0x07,0x5b,0x96,0x4b,0x07,0x15,0x2d,0x23,0x4b,0x70], "MD5 calculation failed");
     }
 
-    func testMD5_emptyString() {
-        let data:Data = "".data(using: String.Encoding.utf8, allowLossyConversion: false)!
-        XCTAssertEqual(Hash.md5(data.bytes).calculate(), [0xd4,0x1d,0x8c,0xd9,0x8f,0x00,0xb2,0x04,0xe9,0x80,0x09,0x98,0xec,0xf8,0x42,0x7e], "MD5 calculation failed")
-    }
-
-    func testMD5_string() {
+    func testMD5String() {
         XCTAssertEqual("123".md5(), "202cb962ac59075b964b07152d234b70", "MD5 calculation failed");
         XCTAssertEqual("".md5(), "d41d8cd98f00b204e9800998ecf8427e", "MD5 calculation failed")
         XCTAssertEqual("a".md5(), "0cc175b9c0f1b6a831c399e269772661", "MD5 calculation failed")
@@ -39,28 +29,25 @@ final class CryptoSwiftTests: XCTestCase {
         XCTAssertEqual("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".md5(), "d174ab98d277d9f5a5611c2c9f419d9f", "MD5 calculation failed")
         XCTAssertEqual("12345678901234567890123456789012345678901234567890123456789012345678901234567890".md5(), "57edf4a22be3c955ac49da2e2107b67a", "MD5 calculation failed")
     }
-    
+
+    func testMD5Updates() {
+        do {
+            var hash = MD5()
+            let _ = try hash.update(withBytes: [0x31, 0x32])
+            let _ = try hash.update(withBytes: [0x33])
+            let result = try hash.finish()
+            XCTAssertEqual(result, [0x20,0x2c,0xb9,0x62,0xac,0x59,0x07,0x5b,0x96,0x4b,0x07,0x15,0x2d,0x23,0x4b,0x70])
+        } catch {
+            XCTFail()
+        }
+    }
+
     func testMD5PerformanceSwift() {
         self.measureMetrics([XCTPerformanceMetric_WallClockTime], automaticallyStartMeasuring: false, for: { () -> Void in
             let arr = Array<UInt8>(repeating: 200, count: 1024 * 1024)
             self.startMeasuring()
-            _ = Hash.md5(arr).calculate()
+            _ = Digest.md5(arr)
             self.stopMeasuring()
-        })
-    }
-    
-    func testMD5PerformanceCommonCrypto() {
-        self.measureMetrics([XCTPerformanceMetric_WallClockTime], automaticallyStartMeasuring: false, for: { () -> Void in
-            let size = 1024 * 1024
-            let buf = UnsafeMutablePointer<NSData>.allocate(capacity: size)
-            let data = NSData(bytes: buf, length: size)
-            let md = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(CC_MD5_DIGEST_LENGTH))
-            self.startMeasuring()
-            CC_MD5(data.bytes, CC_LONG(data.length), md)
-            self.stopMeasuring()
-            md.deallocate(capacity: Int(CC_MD5_DIGEST_LENGTH))
-            md.deinitialize()
-            buf.deallocate(capacity: size)
         })
     }
     
@@ -100,16 +87,16 @@ final class CryptoSwiftTests: XCTestCase {
         
         XCTAssertEqual("The quick brown fox jumps over the lazy dog.".sha384(), "ed892481d8272ca6df370bf706e4d7bc1b5739fa2177aae6c50e946678718fc67a7af2819a021c2fc34e91bdb63409d7", "SHA384 calculation failed");
         XCTAssertEqual("".sha384(), "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b", "SHA384 calculation failed")
+        XCTAssertEqual("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu".sha384(), "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712fcc7c71a557e2db966c3e9fa91746039", "SHA384 calculation failed")
     }
 
     func testSHA512() {
-        let data:Data = Data(bytes: UnsafePointer<UInt8>([49, 50, 51] as Array<UInt8>), count: 3)
-        if let hash = data.sha512() {
-            XCTAssertEqual(hash.toHexString(), "3c9909afec25354d551dae21590bb26e38d53f2173b8d3dc3eee4c047e7ab1c1eb8b85103e3be7ba613b31bb5c9c36214dc9f14a42fd7a2fdb84856bca5c44c2", "SHA512 calculation failed");
-        }
-        
-        XCTAssertEqual("The quick brown fox jumps over the lazy dog.".sha512(), "91ea1245f20d46ae9a037a989f54f1f790f0a47607eeb8a14d12890cea77a1bbc6c7ed9cf205e67b7f2b8fd4c7dfd3a7a8617e45f3c463d481c7e586c39ac1ed", "SHA512 calculation failed");
-        XCTAssertEqual("".sha512(), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", "SHA512 calculation failed")
+        XCTAssertEqual("abc".sha512(), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f", "length 24 bits");
+        XCTAssertEqual("".sha512(), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", "the bit string of length 0");
+        XCTAssertEqual("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".sha512(), "204a8fc6dda82f0a0ced7beb8e08a41657c16ef468b228a8279be331a703c33596fd15c13b1b07f9aa1d3bea57789ca031ad85c7a71dd70354ec631238ca3445", "length 448 bits");
+        XCTAssertEqual("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu".sha512(), "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909", "length 896 bits");
+
+        XCTAssertEqual(Array<UInt8>(repeating: 0x61, count: 1000000).sha512(), Array<UInt8>(hex: "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b"), "One million (1,000,000) repetitions of the character 'a' (0x61)")
     }
     
     func testCRC32() {
@@ -132,7 +119,7 @@ final class CryptoSwiftTests: XCTestCase {
     }
     
     func testCRC16() {
-        let result = CRC().crc16([49,50,51,52,53,54,55,56,57] as Array<UInt8>)
+        let result = Checksum.crc16([49,50,51,52,53,54,55,56,57] as Array<UInt8>)
         XCTAssert(result == 0xBB3D, "CRC16 failed")
     }
     
@@ -141,4 +128,19 @@ final class CryptoSwiftTests: XCTestCase {
         XCTAssert(data.checksum() == 0x96, "Invalid checksum")
     }
 
+    static let allTests =  [
+        ("testMD5Data", testMD5Data),
+        ("testMD5String", testMD5String),
+        ("testMD5Updates", testMD5Updates),
+        ("testMD5PerformanceSwift", testMD5PerformanceSwift),
+        ("testSHA1", testSHA1),
+        ("testSHA224", testSHA224),
+        ("testSHA256", testSHA256),
+        ("testSHA384", testSHA384),
+        ("testSHA512", testSHA512),
+        ("testCRC32", testCRC32),
+        ("testCRC32NotReflected", testCRC32NotReflected),
+        ("testCRC15", testCRC16),
+        ("testChecksum", testChecksum)
+    ]
 }
